@@ -89,10 +89,21 @@
           return;
         }
 
-        // 需要登入，使用 redirect（在 Teams 的視窗中，redirect 可以工作）
-        await msalInstance.loginRedirect({
-          scopes: ['User.Read']
-        });
+        // 需要登入
+        // 在 Teams authentication.authenticate() 視窗中，嘗試使用 popup
+        // 如果 popup 失敗，則使用 redirect
+        try {
+          const response = await msalInstance.loginPopup({
+            scopes: ['User.Read']
+          });
+          microsoftTeams.authentication.notifySuccess(response.accessToken);
+        } catch (popupError) {
+          console.log('Popup 登入失敗，改用 redirect:', popupError);
+          // 在 Teams 視窗中，redirect 應該可以工作
+          await msalInstance.loginRedirect({
+            scopes: ['User.Read']
+          });
+        }
       } catch (error) {
         console.error('認證失敗:', error);
         microsoftTeams.authentication.notifyFailure(error.message);

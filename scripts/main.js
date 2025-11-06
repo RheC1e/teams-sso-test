@@ -109,7 +109,48 @@ async function authenticateWithSSO() {
   }
 }
 
-// 使用 MSAL Popup 登入（Teams iframe 環境必須使用 popup）
+// 使用 MSAL Silent 登入（不需要 popup，適合 Teams 桌面版）
+async function authenticateWithMSALSilent() {
+  try {
+    console.log('開始 MSAL Silent 登入（不需要 popup）...');
+    
+    const { PublicClientApplication } = await import('@azure/msal-browser');
+    
+    const msalConfig = {
+      auth: {
+        clientId: '33abd69a-d012-498a-bddb-8608cbf10c2d',
+        authority: 'https://login.microsoftonline.com/cd4e36bd-ac9a-4236-9f91-a6718b6b5e45',
+        redirectUri: window.location.origin
+      },
+      system: {
+        allowNativeBroker: false
+      }
+    };
+
+    const msalInstance = new PublicClientApplication(msalConfig);
+    await msalInstance.initialize();
+
+    // 檢查是否已登入
+    const accounts = msalInstance.getAllAccounts();
+    if (accounts.length > 0) {
+      // 嘗試 silent token（不需要使用者互動）
+      const tokenResponse = await msalInstance.acquireTokenSilent({
+        scopes: ['User.Read'],
+        account: accounts[0]
+      });
+      await fetchUserInfoFromMSAL(tokenResponse.accessToken);
+      return;
+    }
+    
+    // 如果沒有已登入的帳號，無法使用 silent
+    throw new Error('沒有已登入的帳號，無法使用 silent 登入');
+  } catch (error) {
+    console.error('MSAL Silent 登入失敗:', error);
+    throw error; // 重新拋出錯誤，讓上層處理
+  }
+}
+
+// 使用 MSAL Popup 登入（僅在網頁版 Teams 且允許 popup 時使用）
 async function authenticateWithMSALPopup() {
   try {
     console.log('開始 MSAL Popup 登入（Teams iframe 環境）...');
