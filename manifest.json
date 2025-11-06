@@ -1,0 +1,49 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.16",
+  "version": "1.0.0",
+  "id": "33abd69a-d012-498a-bddb-8608cbf10c2d",
+  "packageName": "com.rhema.teams-sso-test",
+  "developer": {
+    "name": "航冠國際聯運有限公司",
+    "websiteUrl": "https://rhema.com.tw",
+    "privacyUrl": "https://rhema.com.tw/privacy",
+    "termsOfUseUrl": "https://rhema.com.tw/terms"
+  },
+  "name": {
+    "short": "Teams SSO 測試",
+    "full": "Teams SSO 自動登入測試應用程式"
+  },
+  "description": {
+    "short": "測試 Teams SSO 自動登入功能",
+    "full": "此應用程式用於測試 Teams 單一登入（SSO）功能，會自動顯示使用者的顯示名稱、信箱和姓名。"
+  },
+  "icons": {
+    "color": "icon-color.png",
+    "outline": "icon-outline.png"
+  },
+  "accentColor": "#6366f1",
+  "staticTabs": [
+    {
+      "entityId": "sso-test",
+      "name": "SSO 測試",
+      "contentUrl": "https://rhema-pwa-demo.vercel.app/teams-sso-test/index.html",
+      "scopes": [
+        "personal"
+      ]
+    }
+  ],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "validDomains": [
+    "rhema-pwa-demo.vercel.app",
+    "*.vercel.app"
+  ],
+  "webApplicationInfo": {
+    "id": "33abd69a-d012-498a-bddb-8608cbf10c2d",
+    "resource": "api://rhema-pwa-demo.vercel.app/33abd69a-d012-498a-bddb-8608cbf10c2d"
+  }
+}
+

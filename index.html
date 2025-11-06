@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teams SSO 測試</title>
+  <script src="https://res.cdn.office.net/teams-js/2.0.0/js/MicrosoftTeams.min.js" crossorigin="anonymous"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft JhengHei', '微軟正黑體', Arial, sans-serif;
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 16px;
+      padding: 48px;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+      max-width: 600px;
+      width: 100%;
+    }
+
+    h1 {
+      color: #6366f1;
+      margin-bottom: 8px;
+      font-size: 28px;
+    }
+
+    .subtitle {
+      color: #6b7280;
+      margin-bottom: 32px;
+      font-size: 14px;
+    }
+
+    .info-card {
+      background: #f9fafb;
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .info-row:last-child {
+      border-bottom: none;
+    }
+
+    .info-label {
+      font-weight: 600;
+      color: #374151;
+      font-size: 14px;
+    }
+
+    .info-value {
+      color: #1f2937;
+      font-size: 16px;
+      text-align: right;
+      word-break: break-all;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 48px;
+      color: #6b7280;
+    }
+
+    .spinner {
+      border: 3px solid #f3f4f6;
+      border-top: 3px solid #6366f1;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 16px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .error {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      padding: 16px;
+      color: #991b1b;
+      margin-top: 16px;
+    }
+
+    .success-badge {
+      display: inline-block;
+      background: #10b981;
+      color: white;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Teams SSO 測試</h1>
+    <p class="subtitle">自動登入並顯示使用者資訊</p>
+
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <p>正在載入 Teams SDK...</p>
+    </div>
+
+    <div id="content" style="display: none;">
+      <span class="success-badge">✓ 登入成功</span>
+      
+      <div class="info-card">
+        <div class="info-row">
+          <span class="info-label">顯示名稱</span>
+          <span class="info-value" id="display-name">-</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">信箱</span>
+          <span class="info-value" id="email">-</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">姓名</span>
+          <span class="info-value" id="full-name">-</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">使用者 ID</span>
+          <span class="info-value" id="user-id" style="font-size: 12px;">-</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="error" class="error" style="display: none;"></div>
+  </div>
+
+  <script type="module" src="/scripts/main.js"></script>
+</body>
+</html>
+

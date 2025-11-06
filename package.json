@@ -1,0 +1,26 @@
+{
+  "name": "teams-sso-test",
+  "version": "1.0.0",
+  "description": "Teams SSO 自動登入測試專案",
+  "main": "index.html",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "teams",
+    "sso",
+    "microsoft"
+  ],
+  "author": "Ivan Chen",
+  "license": "MIT",
+  "devDependencies": {
+    "vite": "^5.0.0"
+  },
+  "dependencies": {
+    "@microsoft/teams-js": "^2.0.0",
+    "@azure/msal-browser": "^3.0.0"
+  }
+}
+
