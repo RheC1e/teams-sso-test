@@ -76,6 +76,9 @@ async function authenticateWithSSO() {
     
     // 方法 1: 嘗試 silent token（不需要使用者互動）
     try {
+      console.log('嘗試 Silent Token...');
+      console.log('資源 URI:', 'api://teams-sso-test-rho.vercel.app/33abd69a-d012-498a-bddb-8608cbf10c2d');
+      
       const token = await microsoftTeams.authentication.getAuthToken({
         resources: ['api://teams-sso-test-rho.vercel.app/33abd69a-d012-498a-bddb-8608cbf10c2d'],
         silent: true // 先嘗試 silent，不需要彈窗
@@ -87,19 +90,41 @@ async function authenticateWithSSO() {
     } catch (silentError) {
       console.log('Silent token 失敗:', silentError);
       console.log('錯誤代碼:', silentError.errorCode);
+      console.log('錯誤訊息:', silentError.message);
+      
+      // 如果是 UserConsentRequired，繼續到下一步要求授權
+      if (silentError.errorCode !== 'UserConsentRequired') {
+        // 其他錯誤可能是配置問題，記錄詳細資訊
+        console.error('Silent token 失敗詳情:', {
+          errorCode: silentError.errorCode,
+          message: silentError.message,
+          stack: silentError.stack
+        });
+      }
     }
     
     // 方法 2: 使用 getAuthToken（需要使用者同意，但使用 Teams 內建視窗，不是 popup）
     // 這個方法在桌面版和網頁版都可以工作，且都在同頁面完成認證
     // 完全跳過 authentication.authenticate()，因為它可能會開啟新視窗
     console.log('使用 getAuthToken（Teams 內建視窗，同頁面認證）...');
-    const token = await microsoftTeams.authentication.getAuthToken({
-      resources: ['api://teams-sso-test-rho.vercel.app/33abd69a-d012-498a-bddb-8608cbf10c2d'],
-      silent: false // 會顯示 Teams 內建的認證視窗，不是瀏覽器 popup，且在同頁面完成
-    });
+    console.log('資源 URI:', 'api://teams-sso-test-rho.vercel.app/33abd69a-d012-498a-bddb-8608cbf10c2d');
     
-    console.log('SSO Token 取得成功');
-    await fetchUserInfo(token);
+    try {
+      const token = await microsoftTeams.authentication.getAuthToken({
+        resources: ['api://teams-sso-test-rho.vercel.app/33abd69a-d012-498a-bddb-8608cbf10c2d'],
+        silent: false // 會顯示 Teams 內建的認證視窗，不是瀏覽器 popup，且在同頁面完成
+      });
+      
+      console.log('SSO Token 取得成功');
+      await fetchUserInfo(token);
+    } catch (getTokenError) {
+      console.error('getAuthToken 失敗:', getTokenError);
+      console.error('錯誤代碼:', getTokenError.errorCode);
+      console.error('錯誤訊息:', getTokenError.message);
+      
+      // 重新拋出錯誤，讓外層的 catch 處理
+      throw getTokenError;
+    }
     
   } catch (error) {
     console.error('Teams SSO 認證失敗:', error);
