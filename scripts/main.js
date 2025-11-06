@@ -38,30 +38,73 @@ async function init() {
   }
 }
 
-// 使用 Teams SSO 登入
+// 使用 Teams SSO 登入（不使用 popup）
 async function authenticateWithSSO() {
   try {
     console.log('開始 Teams SSO 認證...');
     
-    // 取得 SSO Token
+    // 方法 1: 嘗試 silent token（不需要使用者互動）
+    try {
+      const token = await microsoftTeams.authentication.getAuthToken({
+        resources: ['api://teams-sso-test-rho.vercel.app/33abd69a-d012-498a-bddb-8608cbf10c2d'],
+        silent: true // 先嘗試 silent，不需要彈窗
+      });
+      
+      console.log('SSO Silent Token 取得成功');
+      await fetchUserInfo(token);
+      return;
+    } catch (silentError) {
+      console.log('Silent token 失敗，嘗試使用 authentication.authenticate()...', silentError);
+    }
+    
+    // 方法 2: 使用 Teams 的 authentication.authenticate() API（專為 Teams 設計，使用 Teams 內建視窗，不是瀏覽器 popup）
+    // 這個方法在 Teams 桌面版和網頁版都可以工作
+    try {
+      const authUrl = `${window.location.origin}/auth.html?clientId=33abd69a-d012-498a-bddb-8608cbf10c2d&tenantId=cd4e36bd-ac9a-4236-9f91-a6718b6b5e45`;
+      
+      console.log('使用 Teams authentication.authenticate()，URL:', authUrl);
+      
+      const result = await microsoftTeams.authentication.authenticate({
+        url: authUrl,
+        width: 600,
+        height: 535
+      });
+      
+      console.log('Teams authentication.authenticate() 成功，結果:', result);
+      
+      // result 應該包含 token（字串）
+      if (result && typeof result === 'string') {
+        await fetchUserInfo(result);
+        return;
+      } else if (result && result.accessToken) {
+        await fetchUserInfo(result.accessToken);
+        return;
+      } else {
+        console.warn('authentication.authenticate() 返回的結果格式不預期:', result);
+      }
+    } catch (authError) {
+      console.log('authentication.authenticate() 失敗，嘗試 getAuthToken...', authError);
+    }
+    
+    // 方法 3: 使用 getAuthToken（需要使用者同意，但使用 Teams 內建視窗，不是 popup）
     const token = await microsoftTeams.authentication.getAuthToken({
       resources: ['api://teams-sso-test-rho.vercel.app/33abd69a-d012-498a-bddb-8608cbf10c2d'],
-      silent: false
+      silent: false // 會顯示 Teams 內建的認證視窗，不是瀏覽器 popup
     });
     
     console.log('SSO Token 取得成功');
-
-    // 使用 Token 取得使用者資訊
     await fetchUserInfo(token);
-  } catch (error) {
-    console.error('SSO 認證失敗:', error);
     
-    // 如果 SSO 失敗，嘗試使用 MSAL（在 Teams 中必須使用 popup）
-    if (error.errorCode === 'UserConsentRequired' || error.errorCode === 'InvalidResource') {
-      console.log('SSO 失敗，改用 MSAL Popup 登入（Teams iframe 環境）...');
-      await authenticateWithMSALPopup();
-    } else {
-      showError('SSO 認證失敗：' + error.message);
+  } catch (error) {
+    console.error('所有 SSO 方法都失敗:', error);
+    
+    // 最後備用方案：使用 MSAL Silent（如果已登入過）
+    try {
+      console.log('嘗試使用 MSAL Silent 登入...');
+      await authenticateWithMSALSilent();
+    } catch (msalError) {
+      console.error('MSAL Silent 也失敗:', msalError);
+      showError('登入失敗：' + error.message + '\n\n請確認已授與應用程式權限，或聯繫系統管理員。');
     }
   }
 }

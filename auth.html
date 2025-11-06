@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teams 認證</title>
+  <script src="https://res.cdn.office.net/teams-js/2.0.0/js/MicrosoftTeams.min.js" crossorigin="anonymous"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft JhengHei', sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      background: #f3f4f6;
+    }
+    .container {
+      text-align: center;
+      padding: 20px;
+    }
+    .spinner {
+      border: 3px solid #f3f4f6;
+      border-top: 3px solid #6366f1;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="spinner"></div>
+    <p>正在進行認證...</p>
+  </div>
+
+  <script>
+    (async function() {
+      try {
+        // 取得 URL 參數
+        const urlParams = new URLSearchParams(window.location.search);
+        const clientId = urlParams.get('clientId');
+        const tenantId = urlParams.get('tenantId');
+        
+        if (!clientId || !tenantId) {
+          microsoftTeams.authentication.notifyFailure('缺少必要參數');
+          return;
+        }
+        
+        // 初始化 Teams SDK
+        await microsoftTeams.app.initialize();
+        
+        // 使用 MSAL 進行認證
+        const { PublicClientApplication } = await import('@azure/msal-browser');
+        
+        const msalConfig = {
+          auth: {
+            clientId: clientId,
+            authority: `https://login.microsoftonline.com/${tenantId}`,
+            redirectUri: window.location.origin + window.location.pathname
+          }
+        };
+
+        const msalInstance = new PublicClientApplication(msalConfig);
+        await msalInstance.initialize();
+
+        // 處理 redirect callback
+        const response = await msalInstance.handleRedirectPromise();
+        if (response) {
+          // 登入成功，回傳 token
+          microsoftTeams.authentication.notifySuccess(response.accessToken);
+          return;
+        }
+
+        // 檢查是否已登入
+        const accounts = msalInstance.getAllAccounts();
+        if (accounts.length > 0) {
+          const tokenResponse = await msalInstance.acquireTokenSilent({
+            scopes: ['User.Read'],
+            account: accounts[0]
+          });
+          microsoftTeams.authentication.notifySuccess(tokenResponse.accessToken);
+          return;
+        }
+
+        // 需要登入，使用 redirect（在 Teams 的視窗中，redirect 可以工作）
+        await msalInstance.loginRedirect({
+          scopes: ['User.Read']
+        });
+      } catch (error) {
+        console.error('認證失敗:', error);
+        microsoftTeams.authentication.notifyFailure(error.message);
+      }
+    })();
+  </script>
+</body>
+</html>
+
