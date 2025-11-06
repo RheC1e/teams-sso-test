@@ -21,7 +21,7 @@ async function init() {
       console.log('在 Teams 中執行，開始 SSO 登入...');
       await authenticateWithSSO();
     } else {
-      console.log('不在 Teams 中執行，使用一般登入...');
+      console.log('不在 Teams 中執行，使用一般登入（redirect）...');
       await authenticateWithMSAL();
     }
   } catch (error) {
@@ -37,7 +37,7 @@ async function authenticateWithSSO() {
     
     // 取得 SSO Token
     const token = await microsoftTeams.authentication.getAuthToken({
-      resources: ['api://rhema-pwa-demo.vercel.app/33abd69a-d012-498a-bddb-8608cbf10c2d'],
+      resources: ['api://teams-sso-test-rho.vercel.app/33abd69a-d012-498a-bddb-8608cbf10c2d'],
       silent: false
     });
     
@@ -48,20 +48,69 @@ async function authenticateWithSSO() {
   } catch (error) {
     console.error('SSO 認證失敗:', error);
     
-    // 如果 SSO 失敗，嘗試使用 MSAL
+    // 如果 SSO 失敗，嘗試使用 MSAL（在 Teams 中必須使用 popup）
     if (error.errorCode === 'UserConsentRequired' || error.errorCode === 'InvalidResource') {
-      console.log('SSO 失敗，改用 MSAL 登入...');
-      await authenticateWithMSAL();
+      console.log('SSO 失敗，改用 MSAL Popup 登入（Teams iframe 環境）...');
+      await authenticateWithMSALPopup();
     } else {
       showError('SSO 認證失敗：' + error.message);
     }
   }
 }
 
-// 使用 MSAL 登入（備用方案）
+// 使用 MSAL Popup 登入（Teams iframe 環境必須使用 popup）
+async function authenticateWithMSALPopup() {
+  try {
+    console.log('開始 MSAL Popup 登入（Teams iframe 環境）...');
+    
+    const { PublicClientApplication } = await import('@azure/msal-browser');
+    
+    const msalConfig = {
+      auth: {
+        clientId: '33abd69a-d012-498a-bddb-8608cbf10c2d',
+        authority: 'https://login.microsoftonline.com/cd4e36bd-ac9a-4236-9f91-a6718b6b5e45',
+        redirectUri: window.location.origin
+      },
+      system: {
+        // 在 iframe 中允許 popup
+        allowNativeBroker: false
+      }
+    };
+
+    const msalInstance = new PublicClientApplication(msalConfig);
+    await msalInstance.initialize();
+
+    // 檢查是否已登入
+    const accounts = msalInstance.getAllAccounts();
+    if (accounts.length > 0) {
+      try {
+        const tokenResponse = await msalInstance.acquireTokenSilent({
+          scopes: ['User.Read'],
+          account: accounts[0]
+        });
+        await fetchUserInfoFromMSAL(tokenResponse.accessToken);
+        return;
+      } catch (silentError) {
+        console.log('Silent token 取得失敗，使用 popup:', silentError);
+      }
+    }
+    
+    // 在 Teams iframe 中必須使用 popup，不能使用 redirect
+    const response = await msalInstance.loginPopup({
+      scopes: ['User.Read']
+    });
+    
+    await fetchUserInfoFromMSAL(response.accessToken);
+  } catch (error) {
+    console.error('MSAL Popup 登入失敗:', error);
+    showError('登入失敗：' + error.message + '\n\n在 Teams 中必須使用 Popup 登入，請允許彈出視窗。');
+  }
+}
+
+// 使用 MSAL 登入（一般網頁環境，使用 redirect）
 async function authenticateWithMSAL() {
   try {
-    console.log('開始 MSAL 登入...');
+    console.log('開始 MSAL 登入（一般網頁環境）...');
     
     const { PublicClientApplication } = await import('@azure/msal-browser');
     
@@ -92,7 +141,7 @@ async function authenticateWithMSAL() {
       });
       await fetchUserInfoFromMSAL(tokenResponse.accessToken);
     } else {
-      // 需要登入
+      // 需要登入（一般網頁使用 redirect）
       await msalInstance.loginRedirect({
         scopes: ['User.Read']
       });
