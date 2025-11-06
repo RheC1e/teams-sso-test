@@ -19,10 +19,18 @@ async function init() {
     // 檢查是否在 Teams 中執行
     if (teamsContext.app.host.name === 'Teams') {
       console.log('在 Teams 中執行，開始 SSO 登入...');
+      // 在 Teams 中，優先使用 SSO，失敗則使用 Popup（不能使用 redirect）
       await authenticateWithSSO();
     } else {
-      console.log('不在 Teams 中執行，使用一般登入（redirect）...');
-      await authenticateWithMSAL();
+      console.log('不在 Teams 中執行，檢查是否在 iframe 中...');
+      // 檢查是否在 iframe 中
+      if (window.self !== window.top) {
+        console.log('在 iframe 中，使用 Popup 登入...');
+        await authenticateWithMSALPopup();
+      } else {
+        console.log('在一般網頁中，使用 Redirect 登入...');
+        await authenticateWithMSAL();
+      }
     }
   } catch (error) {
     console.error('初始化失敗:', error);
@@ -224,10 +232,17 @@ function showError(message) {
 if (window.microsoftTeams) {
   init();
 } else {
-  // 如果不在 Teams 中，直接使用 MSAL
+  // 如果不在 Teams 中，檢查是否在 iframe 中
   window.addEventListener('load', () => {
     if (!window.microsoftTeams) {
-      authenticateWithMSAL();
+      // 檢查是否在 iframe 中
+      if (window.self !== window.top) {
+        console.log('在 iframe 中，使用 Popup 登入...');
+        authenticateWithMSALPopup();
+      } else {
+        console.log('在一般網頁中，使用 Redirect 登入...');
+        authenticateWithMSAL();
+      }
     } else {
       init();
     }
