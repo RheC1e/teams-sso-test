@@ -40,20 +40,31 @@ async function init() {
 
 // 檢測是否為 Teams 桌面版
 function isTeamsDesktop() {
-  // 檢查 Teams 上下文中的平台資訊
-  if (teamsContext && teamsContext.app.host) {
-    // Teams 桌面版通常會有特定的 host 資訊
-    // 或者可以通過檢查 userAgent 或其他方式
+  try {
+    // 方法 1: 檢查 userAgent（最可靠）
     const userAgent = navigator.userAgent || '';
-    // Teams 桌面版通常使用 Electron，會有特定的 userAgent
-    if (userAgent.includes('Electron') || userAgent.includes('Teams')) {
-      // 進一步檢查是否在桌面版
-      // 桌面版通常 window.self === window.top（不在 iframe 中）
-      // 但這不是完全可靠的方法
+    if (userAgent.includes('Electron')) {
+      console.log('檢測到 Electron（桌面版）');
       return true;
     }
+    
+    // 方法 2: 檢查 Teams 上下文
+    if (teamsContext && teamsContext.app && teamsContext.app.host) {
+      const hostName = teamsContext.app.host.name;
+      console.log('Teams Host:', hostName);
+      // 桌面版通常是 'Teams'，網頁版可能是 'Teams' 或其他
+      // 但這不是完全可靠的判斷方式
+    }
+    
+    // 方法 3: 檢查是否在 iframe 中
+    // 桌面版通常不在 iframe 中（window.self === window.top）
+    // 但這也不完全可靠，因為網頁版也可能不在 iframe 中
+    
+    return false;
+  } catch (error) {
+    console.error('檢測桌面版時發生錯誤:', error);
+    return false;
   }
-  return false;
 }
 
 // 使用 Teams SSO 登入（不使用 popup）
