@@ -15,6 +15,8 @@ async function init() {
     // 取得 Teams 上下文
     teamsContext = await microsoftTeams.app.getContext();
     console.log('Teams 上下文:', teamsContext);
+    console.log('User Agent:', navigator.userAgent);
+    console.log('是否在 iframe 中:', window.self !== window.top);
 
     // 檢查是否在 Teams 中執行
     if (teamsContext.app.host.name === 'Teams') {
