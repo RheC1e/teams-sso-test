@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>建立 Teams 圖示</title>
+</head>
+<body>
+  <h1>Teams 應用程式圖示產生器</h1>
+  <p>請使用瀏覽器開發者工具將以下 Canvas 轉換為圖片</p>
+  
+  <h2>Color Icon (192x192)</h2>
+  <canvas id="colorIcon" width="192" height="192"></canvas>
+  <button onclick="downloadIcon('colorIcon', 'icon-color.png')">下載 Color Icon</button>
+  
+  <h2>Outline Icon (32x32)</h2>
+  <canvas id="outlineIcon" width="32" height="32"></canvas>
+  <button onclick="downloadIcon('outlineIcon', 'icon-outline.png')">下載 Outline Icon</button>
+
+  <script>
+    // 繪製 Color Icon (192x192)
+    const colorCanvas = document.getElementById('colorIcon');
+    const colorCtx = colorCanvas.getContext('2d');
+    
+    // 背景漸層
+    const colorGradient = colorCtx.createLinearGradient(0, 0, 192, 192);
+    colorGradient.addColorStop(0, '#6366f1');
+    colorGradient.addColorStop(1, '#8b5cf6');
+    colorCtx.fillStyle = colorGradient;
+    colorCtx.fillRect(0, 0, 192, 192);
+    
+    // 白色文字 "R"
+    colorCtx.fillStyle = '#ffffff';
+    colorCtx.font = 'bold 120px Arial';
+    colorCtx.textAlign = 'center';
+    colorCtx.textBaseline = 'middle';
+    colorCtx.fillText('R', 96, 96);
+    
+    // 繪製 Outline Icon (32x32)
+    const outlineCanvas = document.getElementById('outlineIcon');
+    const outlineCtx = outlineCanvas.getContext('2d');
+    
+    // 白色背景
+    outlineCtx.fillStyle = '#ffffff';
+    outlineCtx.fillRect(0, 0, 32, 32);
+    
+    // 紫色文字 "R"
+    outlineCtx.fillStyle = '#6366f1';
+    outlineCtx.font = 'bold 20px Arial';
+    outlineCtx.textAlign = 'center';
+    outlineCtx.textBaseline = 'middle';
+    outlineCtx.fillText('R', 16, 16);
+    
+    function downloadIcon(canvasId, filename) {
+      const canvas = document.getElementById(canvasId);
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }
+  </script>
+</body>
+</html>
+
