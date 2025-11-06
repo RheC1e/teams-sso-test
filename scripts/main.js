@@ -18,21 +18,16 @@ async function init() {
     console.log('User Agent:', navigator.userAgent);
     console.log('是否在 iframe 中:', window.self !== window.top);
 
-    // 檢查是否在 Teams 中執行
-    if (teamsContext.app.host.name === 'Teams') {
-      console.log('在 Teams 中執行，開始 SSO 登入...');
-      // 在 Teams 中，優先使用 SSO，失敗則使用 Popup（不能使用 redirect）
+    // 檢查是否在 Teams 中執行（桌面版和網頁版都應該在 Teams 中）
+    // 只要 Teams SDK 可用，就使用 Teams SSO（getAuthToken）
+    if (teamsContext && teamsContext.app && teamsContext.app.host) {
+      console.log('在 Teams 中執行（桌面版或網頁版），使用 Teams SSO...');
+      // 在 Teams 中（無論桌面版還是網頁版），都使用 getAuthToken
+      // 這會使用 Teams 內建視窗，不會有 popup 或 redirect
       await authenticateWithSSO();
     } else {
-      console.log('不在 Teams 中執行，檢查是否在 iframe 中...');
-      // 檢查是否在 iframe 中
-      if (window.self !== window.top) {
-        console.log('在 iframe 中，使用 Popup 登入...');
-        await authenticateWithMSALPopup();
-      } else {
-        console.log('在一般網頁中，使用 Redirect 登入...');
-        await authenticateWithMSAL();
-      }
+      console.log('不在 Teams 中執行，無法使用 Teams SSO');
+      showError('此應用程式必須在 Microsoft Teams 中執行。');
     }
   } catch (error) {
     console.error('初始化失敗:', error);
@@ -94,66 +89,44 @@ async function authenticateWithSSO() {
       console.log('錯誤代碼:', silentError.errorCode);
     }
     
-    // 方法 2: 僅在非桌面版使用 authentication.authenticate()
-    // 桌面版可能不支援此 API，所以跳過
-    if (!isDesktop) {
-      try {
-        const authUrl = `${window.location.origin}/auth.html?clientId=33abd69a-d012-498a-bddb-8608cbf10c2d&tenantId=cd4e36bd-ac9a-4236-9f91-a6718b6b5e45`;
-        
-        console.log('使用 Teams authentication.authenticate()（僅網頁版），URL:', authUrl);
-        
-        const result = await microsoftTeams.authentication.authenticate({
-          url: authUrl,
-          width: 600,
-          height: 535
-        });
-        
-        console.log('Teams authentication.authenticate() 成功，結果:', result);
-        
-        // result 應該包含 token（字串）
-        if (result && typeof result === 'string') {
-          await fetchUserInfo(result);
-          return;
-        } else if (result && result.accessToken) {
-          await fetchUserInfo(result.accessToken);
-          return;
-        } else {
-          console.warn('authentication.authenticate() 返回的結果格式不預期:', result);
-        }
-      } catch (authError) {
-        console.log('authentication.authenticate() 失敗，改用 getAuthToken...', authError);
-      }
-    } else {
-      console.log('桌面版跳過 authentication.authenticate()，直接使用 getAuthToken');
-    }
-    
-    // 方法 3: 使用 getAuthToken（需要使用者同意，但使用 Teams 內建視窗，不是 popup）
-    // 這個方法在桌面版和網頁版都可以工作
-    console.log('使用 getAuthToken（Teams 內建視窗）...');
+    // 方法 2: 使用 getAuthToken（需要使用者同意，但使用 Teams 內建視窗，不是 popup）
+    // 這個方法在桌面版和網頁版都可以工作，且都在同頁面完成認證
+    // 完全跳過 authentication.authenticate()，因為它可能會開啟新視窗
+    console.log('使用 getAuthToken（Teams 內建視窗，同頁面認證）...');
     const token = await microsoftTeams.authentication.getAuthToken({
       resources: ['api://teams-sso-test-rho.vercel.app/33abd69a-d012-498a-bddb-8608cbf10c2d'],
-      silent: false // 會顯示 Teams 內建的認證視窗，不是瀏覽器 popup
+      silent: false // 會顯示 Teams 內建的認證視窗，不是瀏覽器 popup，且在同頁面完成
     });
     
     console.log('SSO Token 取得成功');
     await fetchUserInfo(token);
     
   } catch (error) {
-    console.error('所有 SSO 方法都失敗:', error);
+    console.error('Teams SSO 認證失敗:', error);
     console.error('錯誤詳情:', {
       errorCode: error.errorCode,
       message: error.message,
       stack: error.stack
     });
     
-    // 最後備用方案：使用 MSAL Silent（如果已登入過）
-    try {
-      console.log('嘗試使用 MSAL Silent 登入...');
-      await authenticateWithMSALSilent();
-    } catch (msalError) {
-      console.error('MSAL Silent 也失敗:', msalError);
-      showError('登入失敗：' + (error.message || error.errorCode || '未知錯誤') + '\n\n請確認已授與應用程式權限，或聯繫系統管理員。\n\n錯誤代碼：' + (error.errorCode || 'N/A'));
+    // 不回退到 popup 或 redirect，直接顯示錯誤
+    // 這樣可以確保不會有彈窗或新分頁
+    let errorMessage = '登入失敗：';
+    
+    if (error.errorCode === 'UserConsentRequired') {
+      errorMessage += '需要使用者授權。請點擊「允許」按鈕以繼續。';
+    } else if (error.errorCode === 'InvalidResource') {
+      errorMessage += '應用程式設定錯誤。請聯繫系統管理員檢查 Azure Portal 中的資源 URI 設定。';
+    } else if (error.errorCode === 'InvalidGrant') {
+      errorMessage += '授權無效。請重新授權應用程式。';
+    } else {
+      errorMessage += error.message || error.errorCode || '未知錯誤';
     }
+    
+    errorMessage += '\n\n錯誤代碼：' + (error.errorCode || 'N/A');
+    errorMessage += '\n\n請確認已授與應用程式權限，或聯繫系統管理員。';
+    
+    showError(errorMessage);
   }
 }
 
@@ -364,19 +337,14 @@ function showError(message) {
 if (window.microsoftTeams) {
   init();
 } else {
-  // 如果不在 Teams 中，檢查是否在 iframe 中
+  // 如果 Teams SDK 未載入，等待載入
   window.addEventListener('load', () => {
-    if (!window.microsoftTeams) {
-      // 檢查是否在 iframe 中
-      if (window.self !== window.top) {
-        console.log('在 iframe 中，使用 Popup 登入...');
-        authenticateWithMSALPopup();
-      } else {
-        console.log('在一般網頁中，使用 Redirect 登入...');
-        authenticateWithMSAL();
-      }
-    } else {
+    if (window.microsoftTeams) {
       init();
+    } else {
+      // 如果 Teams SDK 仍然不可用，顯示錯誤
+      console.error('Teams SDK 未載入');
+      showError('此應用程式必須在 Microsoft Teams 中執行。\n\n請在 Teams 中開啟此應用程式。');
     }
   });
 }
