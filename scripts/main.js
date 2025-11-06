@@ -294,14 +294,71 @@ async function authenticateWithMSAL() {
 async function fetchUserInfo(token) {
   try {
     console.log('取得使用者資訊...');
+    console.log('Token 前 20 個字元:', token.substring(0, 20) + '...');
     
-    const response = await fetch('https://graph.microsoft.com/v1.0/me', {
+    // Teams SSO token 可能無法直接用來呼叫 Microsoft Graph
+    // 需要先嘗試，如果失敗則使用 MSAL 來取得 Graph token
+    let response = await fetch('https://graph.microsoft.com/v1.0/me', {
       headers: {
         'Authorization': `Bearer ${token}`
       }
     });
 
+    // 如果 401，表示 Teams SSO token 無法直接用來呼叫 Graph
+    // 需要使用 MSAL 來取得 Graph token
+    if (response.status === 401) {
+      console.log('Teams SSO token 無法直接呼叫 Graph，改用 MSAL 取得 Graph token...');
+      
+      // 使用 MSAL 來取得 Microsoft Graph 的 token
+      const { PublicClientApplication } = await import('@azure/msal-browser');
+      
+      const msalConfig = {
+        auth: {
+          clientId: '33abd69a-d012-498a-bddb-8608cbf10c2d',
+          authority: 'https://login.microsoftonline.com/cd4e36bd-ac9a-4236-9f91-a6718b6b5e45',
+          redirectUri: window.location.origin
+        },
+        system: {
+          allowNativeBroker: false
+        }
+      };
+
+      const msalInstance = new PublicClientApplication(msalConfig);
+      await msalInstance.initialize();
+
+      // 檢查是否已登入
+      const accounts = msalInstance.getAllAccounts();
+      if (accounts.length > 0) {
+        // 嘗試 silent token
+        try {
+          const tokenResponse = await msalInstance.acquireTokenSilent({
+            scopes: ['User.Read'],
+            account: accounts[0]
+          });
+          
+          console.log('MSAL Silent Token 取得成功，使用 Graph token 取得使用者資訊...');
+          token = tokenResponse.accessToken;
+        } catch (silentError) {
+          console.log('MSAL Silent 失敗，需要使用者互動:', silentError);
+          // 在 Teams 中，我們不能使用 popup 或 redirect
+          // 所以顯示錯誤訊息
+          throw new Error('需要額外授權才能取得使用者資訊。請在 Teams 外部使用此應用程式以完成授權。');
+        }
+      } else {
+        throw new Error('無法取得使用者資訊：需要 Microsoft 365 登入。');
+      }
+      
+      // 使用 Graph token 重新嘗試
+      response = await fetch('https://graph.microsoft.com/v1.0/me', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+    }
+
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Graph API 回應:', response.status, errorText);
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
