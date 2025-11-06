@@ -140,6 +140,18 @@ async function authenticateWithSSO() {
       console.error('錯誤代碼:', getTokenError.errorCode);
       console.error('錯誤訊息:', getTokenError.message);
       
+      // 即使 getAuthToken 失敗，也嘗試使用 Teams 上下文
+      // 因為上下文可能仍然可用（不需要額外授權）
+      if (getTokenError.errorCode === 'UserConsentRequired' || getTokenError.errorCode === 'InvalidResource') {
+        console.log('getAuthToken 失敗，但嘗試使用 Teams 上下文（不需要額外授權）...');
+        try {
+          await fetchUserInfoFromContext();
+          return; // 如果成功，就不拋出錯誤
+        } catch (contextError) {
+          console.error('使用 Teams 上下文也失敗:', contextError);
+        }
+      }
+      
       // 重新拋出錯誤，讓外層的 catch 處理
       throw getTokenError;
     }
