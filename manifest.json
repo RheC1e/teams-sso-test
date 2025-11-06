@@ -27,7 +27,7 @@
     {
       "entityId": "sso-test",
       "name": "SSO 測試",
-      "contentUrl": "https://rhema-pwa-demo.vercel.app/teams-sso-test/index.html",
+      "contentUrl": "https://teams-sso-test-rho.vercel.app/index.html",
       "scopes": [
         "personal"
       ]
@@ -38,7 +38,7 @@
     "messageTeamMembers"
   ],
   "validDomains": [
-    "rhema-pwa-demo.vercel.app",
+    "teams-sso-test-rho.vercel.app",
     "*.vercel.app"
   ],
   "webApplicationInfo": {
