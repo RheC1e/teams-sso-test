@@ -38,10 +38,33 @@ async function init() {
   }
 }
 
+// 檢測是否為 Teams 桌面版
+function isTeamsDesktop() {
+  // 檢查 Teams 上下文中的平台資訊
+  if (teamsContext && teamsContext.app.host) {
+    // Teams 桌面版通常會有特定的 host 資訊
+    // 或者可以通過檢查 userAgent 或其他方式
+    const userAgent = navigator.userAgent || '';
+    // Teams 桌面版通常使用 Electron，會有特定的 userAgent
+    if (userAgent.includes('Electron') || userAgent.includes('Teams')) {
+      // 進一步檢查是否在桌面版
+      // 桌面版通常 window.self === window.top（不在 iframe 中）
+      // 但這不是完全可靠的方法
+      return true;
+    }
+  }
+  return false;
+}
+
 // 使用 Teams SSO 登入（不使用 popup）
 async function authenticateWithSSO() {
   try {
     console.log('開始 Teams SSO 認證...');
+    console.log('Teams 上下文:', teamsContext);
+    
+    // 檢測是否為桌面版
+    const isDesktop = isTeamsDesktop();
+    console.log('是否為桌面版:', isDesktop);
     
     // 方法 1: 嘗試 silent token（不需要使用者互動）
     try {
@@ -54,39 +77,46 @@ async function authenticateWithSSO() {
       await fetchUserInfo(token);
       return;
     } catch (silentError) {
-      console.log('Silent token 失敗，嘗試使用 authentication.authenticate()...', silentError);
+      console.log('Silent token 失敗:', silentError);
+      console.log('錯誤代碼:', silentError.errorCode);
     }
     
-    // 方法 2: 使用 Teams 的 authentication.authenticate() API（專為 Teams 設計，使用 Teams 內建視窗，不是瀏覽器 popup）
-    // 這個方法在 Teams 桌面版和網頁版都可以工作
-    try {
-      const authUrl = `${window.location.origin}/auth.html?clientId=33abd69a-d012-498a-bddb-8608cbf10c2d&tenantId=cd4e36bd-ac9a-4236-9f91-a6718b6b5e45`;
-      
-      console.log('使用 Teams authentication.authenticate()，URL:', authUrl);
-      
-      const result = await microsoftTeams.authentication.authenticate({
-        url: authUrl,
-        width: 600,
-        height: 535
-      });
-      
-      console.log('Teams authentication.authenticate() 成功，結果:', result);
-      
-      // result 應該包含 token（字串）
-      if (result && typeof result === 'string') {
-        await fetchUserInfo(result);
-        return;
-      } else if (result && result.accessToken) {
-        await fetchUserInfo(result.accessToken);
-        return;
-      } else {
-        console.warn('authentication.authenticate() 返回的結果格式不預期:', result);
+    // 方法 2: 僅在非桌面版使用 authentication.authenticate()
+    // 桌面版可能不支援此 API，所以跳過
+    if (!isDesktop) {
+      try {
+        const authUrl = `${window.location.origin}/auth.html?clientId=33abd69a-d012-498a-bddb-8608cbf10c2d&tenantId=cd4e36bd-ac9a-4236-9f91-a6718b6b5e45`;
+        
+        console.log('使用 Teams authentication.authenticate()（僅網頁版），URL:', authUrl);
+        
+        const result = await microsoftTeams.authentication.authenticate({
+          url: authUrl,
+          width: 600,
+          height: 535
+        });
+        
+        console.log('Teams authentication.authenticate() 成功，結果:', result);
+        
+        // result 應該包含 token（字串）
+        if (result && typeof result === 'string') {
+          await fetchUserInfo(result);
+          return;
+        } else if (result && result.accessToken) {
+          await fetchUserInfo(result.accessToken);
+          return;
+        } else {
+          console.warn('authentication.authenticate() 返回的結果格式不預期:', result);
+        }
+      } catch (authError) {
+        console.log('authentication.authenticate() 失敗，改用 getAuthToken...', authError);
       }
-    } catch (authError) {
-      console.log('authentication.authenticate() 失敗，嘗試 getAuthToken...', authError);
+    } else {
+      console.log('桌面版跳過 authentication.authenticate()，直接使用 getAuthToken');
     }
     
     // 方法 3: 使用 getAuthToken（需要使用者同意，但使用 Teams 內建視窗，不是 popup）
+    // 這個方法在桌面版和網頁版都可以工作
+    console.log('使用 getAuthToken（Teams 內建視窗）...');
     const token = await microsoftTeams.authentication.getAuthToken({
       resources: ['api://teams-sso-test-rho.vercel.app/33abd69a-d012-498a-bddb-8608cbf10c2d'],
       silent: false // 會顯示 Teams 內建的認證視窗，不是瀏覽器 popup
@@ -97,6 +127,11 @@ async function authenticateWithSSO() {
     
   } catch (error) {
     console.error('所有 SSO 方法都失敗:', error);
+    console.error('錯誤詳情:', {
+      errorCode: error.errorCode,
+      message: error.message,
+      stack: error.stack
+    });
     
     // 最後備用方案：使用 MSAL Silent（如果已登入過）
     try {
@@ -104,7 +139,7 @@ async function authenticateWithSSO() {
       await authenticateWithMSALSilent();
     } catch (msalError) {
       console.error('MSAL Silent 也失敗:', msalError);
-      showError('登入失敗：' + error.message + '\n\n請確認已授與應用程式權限，或聯繫系統管理員。');
+      showError('登入失敗：' + (error.message || error.errorCode || '未知錯誤') + '\n\n請確認已授與應用程式權限，或聯繫系統管理員。\n\n錯誤代碼：' + (error.errorCode || 'N/A'));
     }
   }
 }
