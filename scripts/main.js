@@ -22,9 +22,25 @@ async function init() {
     // 只要 Teams SDK 可用，就使用 Teams SSO（getAuthToken）
     if (teamsContext && teamsContext.app && teamsContext.app.host) {
       console.log('在 Teams 中執行（桌面版或網頁版），使用 Teams SSO...');
-      // 在 Teams 中（無論桌面版還是網頁版），都使用 getAuthToken
-      // 這會使用 Teams 內建視窗，不會有 popup 或 redirect
-      await authenticateWithSSO();
+      
+      // 防止重複執行認證（避免死循環）
+      if (window.isAuthenticating) {
+        console.log('認證正在進行中，跳過重複執行...');
+        return;
+      }
+      
+      window.isAuthenticating = true;
+      
+      try {
+        // 在 Teams 中（無論桌面版還是網頁版），都使用 getAuthToken
+        // 這會使用 Teams 內建視窗，不會有 popup 或 redirect
+        await authenticateWithSSO();
+      } finally {
+        // 認證完成後，清除標記（但延遲一下，避免立即重複）
+        setTimeout(() => {
+          window.isAuthenticating = false;
+        }, 2000);
+      }
     } else {
       console.log('不在 Teams 中執行，無法使用 Teams SSO');
       showError('此應用程式必須在 Microsoft Teams 中執行。');
