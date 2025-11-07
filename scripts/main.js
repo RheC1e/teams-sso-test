@@ -11,10 +11,9 @@ async function init() {
     console.log('是否在 iframe 中:', window.self !== window.top);
     console.log('User Agent:', navigator.userAgent);
     
-    // 檢查是否在 Teams 環境中
-    // 如果不在 iframe 中且沒有 Teams SDK，可能是直接在瀏覽器中打開
-    if (window.self === window.top && !window.microsoftTeams) {
-      console.warn('檢測到不在 Teams 環境中');
+    // 檢查 Teams SDK 是否可用
+    if (!window.microsoftTeams) {
+      console.warn('Teams SDK 未載入');
       showError('此應用程式必須在 Microsoft Teams 中執行。\n\n請在 Teams 中開啟此應用程式，而不是直接在瀏覽器中打開。');
       return;
     }
@@ -25,10 +24,18 @@ async function init() {
       console.log('Teams SDK 初始化成功');
     } catch (initError) {
       console.error('Teams SDK 初始化失敗:', initError);
+      console.error('錯誤詳情:', {
+        message: initError.message,
+        name: initError.name,
+        stack: initError.stack
+      });
       
       // 檢查是否是 "No Parent window found" 錯誤
-      if (initError.message && initError.message.includes('Parent window')) {
+      const errorMessage = initError.message || '';
+      if (errorMessage.includes('Parent window') || errorMessage.includes('No Parent')) {
         showError('無法連接到 Teams 客戶端。\n\n此應用程式必須在 Microsoft Teams 中執行。\n\n請在 Teams 中開啟此應用程式，而不是直接在瀏覽器中打開。');
+      } else if (errorMessage.includes('Initialization Failed')) {
+        showError('Teams SDK 初始化失敗。\n\n此應用程式必須在 Microsoft Teams 中執行。\n\n請在 Teams 中開啟此應用程式。');
       } else {
         showError('Teams SDK 初始化失敗：' + initError.message + '\n\n請確認您在 Teams 中開啟此應用程式。');
       }
@@ -133,34 +140,34 @@ async function authenticateWithSSO() {
     const isDesktop = isTeamsDesktop();
     console.log('是否為桌面版:', isDesktop);
     
-    // 定義資源 URI（與 manifest.json 中的 webApplicationInfo.resource 一致）
-    const apiResourceUri = 'api://teams-sso-test-rho.vercel.app/33abd69a-d012-498a-bddb-8608cbf10c2d';
+    // 直接使用 Microsoft Graph 作為資源來取得 Graph token
+    // 這是取得使用者資訊最直接的方式
+    const graphResourceUri = 'https://graph.microsoft.com';
     
-    // 方法 1: 先嘗試取得自己 API 的 token（silent，不需要使用者互動）
-    // 這是 Teams SSO 的標準流程：先取得自己 API 的 token
+    // 方法 1: 先嘗試 silent 取得 Graph token（不需要使用者互動）
     try {
-      console.log('嘗試取得 API Token (Silent)...');
-      console.log('資源 URI:', apiResourceUri);
+      console.log('嘗試取得 Microsoft Graph Token (Silent)...');
+      console.log('資源 URI:', graphResourceUri);
       
-      // 使用自己 API 的資源 URI 來取得 token
-      const apiToken = await microsoftTeams.authentication.getAuthToken({
-        resources: [apiResourceUri],
+      // 直接使用 Microsoft Graph 作為資源來取得 Graph token
+      const graphToken = await microsoftTeams.authentication.getAuthToken({
+        resources: [graphResourceUri],
         silent: true // 先嘗試 silent，不需要彈窗
       });
       
-      console.log('API Silent Token 取得成功');
-      // 使用 API token 去取得 Graph token，然後取得使用者資訊
-      await fetchUserInfoWithApiToken(apiToken);
+      console.log('Microsoft Graph Silent Token 取得成功');
+      // 使用 Graph token 直接取得使用者資訊
+      await fetchUserInfoFromGraph(graphToken);
       return;
     } catch (silentError) {
-      console.log('API Silent token 失敗:', silentError);
+      console.log('Graph Silent token 失敗:', silentError);
       console.log('錯誤代碼:', silentError.errorCode);
       console.log('錯誤訊息:', silentError.message);
       
       // 如果是 UserConsentRequired，繼續到下一步要求授權
       if (silentError.errorCode !== 'UserConsentRequired') {
         // 其他錯誤可能是配置問題，記錄詳細資訊
-        console.error('API Silent token 失敗詳情:', {
+        console.error('Graph Silent token 失敗詳情:', {
           errorCode: silentError.errorCode,
           message: silentError.message,
           stack: silentError.stack
@@ -168,21 +175,21 @@ async function authenticateWithSSO() {
       }
     }
     
-    // 方法 2: 使用 getAuthToken 取得自己 API 的 token（需要使用者同意，但使用 Teams 內建視窗，不是 popup）
+    // 方法 2: 使用 getAuthToken 取得 Graph token（需要使用者同意，但使用 Teams 內建視窗，不是 popup）
     // 這個方法在桌面版和網頁版都可以工作，且都在同頁面完成認證
-    console.log('使用 getAuthToken 取得 API Token（Teams 內建視窗，同頁面認證）...');
-    console.log('資源 URI:', apiResourceUri);
+    console.log('使用 getAuthToken 取得 Microsoft Graph Token（Teams 內建視窗，同頁面認證）...');
+    console.log('資源 URI:', graphResourceUri);
     
     try {
-      // 使用自己 API 的資源 URI 來取得 token
-      const apiToken = await microsoftTeams.authentication.getAuthToken({
-        resources: [apiResourceUri],
+      // 直接使用 Microsoft Graph 作為資源來取得 Graph token
+      const graphToken = await microsoftTeams.authentication.getAuthToken({
+        resources: [graphResourceUri],
         silent: false // 會顯示 Teams 內建的認證視窗，不是瀏覽器 popup，且在同頁面完成
       });
       
-      console.log('API Token 取得成功');
-      // 使用 API token 去取得 Graph token，然後取得使用者資訊
-      await fetchUserInfoWithApiToken(apiToken);
+      console.log('Microsoft Graph Token 取得成功');
+      // 使用 Graph token 直接取得使用者資訊
+      await fetchUserInfoFromGraph(graphToken);
     } catch (getTokenError) {
       console.error('getAuthToken 失敗:', getTokenError);
       console.error('錯誤代碼:', getTokenError.errorCode);
