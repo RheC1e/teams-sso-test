@@ -140,63 +140,69 @@ async function authenticateWithSSO() {
     const isDesktop = isTeamsDesktop();
     console.log('是否為桌面版:', isDesktop);
     
-    // 直接使用 Microsoft Graph 作為資源來取得 Graph token
-    // 這是取得使用者資訊最直接的方式
-    const graphResourceUri = 'https://graph.microsoft.com';
+    // 定義應用程式資源 URI（與 manifest.json 中的 webApplicationInfo.resource 一致）
+    // Teams SSO 的 getAuthToken 只能取得應用程式自己的 token
+    const apiResourceUri = 'api://teams-sso-test-rho.vercel.app/33abd69a-d012-498a-bddb-8608cbf10c2d';
     
-    // 方法 1: 先嘗試 silent 取得 Graph token（不需要使用者互動）
+    // 步驟 1: 先使用 Teams SSO 取得應用程式 token（驗證 SSO 成功）
+    let apiToken = null;
     try {
-      console.log('嘗試取得 Microsoft Graph Token (Silent)...');
-      console.log('資源 URI:', graphResourceUri);
+      console.log('步驟 1: 嘗試取得應用程式 Token (Silent)...');
+      console.log('資源 URI:', apiResourceUri);
       
-      // 直接使用 Microsoft Graph 作為資源來取得 Graph token
-      const graphToken = await microsoftTeams.authentication.getAuthToken({
-        resources: [graphResourceUri],
+      // 使用應用程式的資源 URI 來取得 token
+      apiToken = await microsoftTeams.authentication.getAuthToken({
+        resources: [apiResourceUri],
         silent: true // 先嘗試 silent，不需要彈窗
       });
       
-      console.log('Microsoft Graph Silent Token 取得成功');
-      // 使用 Graph token 直接取得使用者資訊
-      await fetchUserInfoFromGraph(graphToken);
-      return;
+      console.log('應用程式 Silent Token 取得成功');
     } catch (silentError) {
-      console.log('Graph Silent token 失敗:', silentError);
+      console.log('應用程式 Silent token 失敗:', silentError);
       console.log('錯誤代碼:', silentError.errorCode);
       console.log('錯誤訊息:', silentError.message);
       
-      // 如果是 UserConsentRequired，繼續到下一步要求授權
-      if (silentError.errorCode !== 'UserConsentRequired') {
-        // 其他錯誤可能是配置問題，記錄詳細資訊
-        console.error('Graph Silent token 失敗詳情:', {
+      // 如果是 UserConsentRequired，嘗試非 silent 方式
+      if (silentError.errorCode === 'UserConsentRequired') {
+        console.log('需要使用者授權，嘗試非 silent 方式...');
+        try {
+          apiToken = await microsoftTeams.authentication.getAuthToken({
+            resources: [apiResourceUri],
+            silent: false // 會顯示 Teams 內建的認證視窗
+          });
+          console.log('應用程式 Token 取得成功（需要授權）');
+        } catch (getTokenError) {
+          console.error('取得應用程式 Token 失敗:', getTokenError);
+          throw getTokenError;
+        }
+      } else {
+        // 其他錯誤，記錄詳細資訊
+        console.error('應用程式 Silent token 失敗詳情:', {
           errorCode: silentError.errorCode,
           message: silentError.message,
           stack: silentError.stack
         });
+        throw silentError;
       }
     }
     
-    // 方法 2: 使用 getAuthToken 取得 Graph token（需要使用者同意，但使用 Teams 內建視窗，不是 popup）
-    // 這個方法在桌面版和網頁版都可以工作，且都在同頁面完成認證
-    console.log('使用 getAuthToken 取得 Microsoft Graph Token（Teams 內建視窗，同頁面認證）...');
-    console.log('資源 URI:', graphResourceUri);
-    
+    // 步驟 2: 使用 MSAL 取得 Graph token（因為使用者已經在 Teams 中登入，可以使用 silent）
+    console.log('步驟 2: 使用 MSAL 取得 Microsoft Graph Token...');
     try {
-      // 直接使用 Microsoft Graph 作為資源來取得 Graph token
-      const graphToken = await microsoftTeams.authentication.getAuthToken({
-        resources: [graphResourceUri],
-        silent: false // 會顯示 Teams 內建的認證視窗，不是瀏覽器 popup，且在同頁面完成
-      });
+      await authenticateWithMSALSilent();
+      return; // 如果成功，直接返回
+    } catch (msalError) {
+      console.log('MSAL Silent 失敗，嘗試其他方式:', msalError);
       
-      console.log('Microsoft Graph Token 取得成功');
-      // 使用 Graph token 直接取得使用者資訊
-      await fetchUserInfoFromGraph(graphToken);
-    } catch (getTokenError) {
-      console.error('getAuthToken 失敗:', getTokenError);
-      console.error('錯誤代碼:', getTokenError.errorCode);
-      console.error('錯誤訊息:', getTokenError.message);
+      // 如果 MSAL silent 失敗，嘗試從 API token 解析使用者資訊
+      if (apiToken) {
+        console.log('嘗試從應用程式 Token 解析使用者資訊...');
+        await fetchUserInfoWithApiToken(apiToken);
+        return;
+      }
       
-      // 重新拋出錯誤，讓外層的 catch 處理
-      throw getTokenError;
+      // 如果都失敗，顯示錯誤
+      throw msalError;
     }
     
   } catch (error) {
