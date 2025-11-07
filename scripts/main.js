@@ -90,29 +90,34 @@ async function authenticateWithSSO() {
     const isDesktop = isTeamsDesktop();
     console.log('是否為桌面版:', isDesktop);
     
-    // 方法 1: 嘗試取得 Microsoft Graph token（silent，不需要使用者互動）
+    // 定義資源 URI（與 manifest.json 中的 webApplicationInfo.resource 一致）
+    const apiResourceUri = 'api://teams-sso-test-rho.vercel.app/33abd69a-d012-498a-bddb-8608cbf10c2d';
+    
+    // 方法 1: 先嘗試取得自己 API 的 token（silent，不需要使用者互動）
+    // 這是 Teams SSO 的標準流程：先取得自己 API 的 token
     try {
-      console.log('嘗試取得 Microsoft Graph Token (Silent)...');
+      console.log('嘗試取得 API Token (Silent)...');
+      console.log('資源 URI:', apiResourceUri);
       
-      // 使用 Microsoft Graph 作為資源來取得 Graph token
-      const graphToken = await microsoftTeams.authentication.getAuthToken({
-        resources: ['https://graph.microsoft.com'],
+      // 使用自己 API 的資源 URI 來取得 token
+      const apiToken = await microsoftTeams.authentication.getAuthToken({
+        resources: [apiResourceUri],
         silent: true // 先嘗試 silent，不需要彈窗
       });
       
-      console.log('Microsoft Graph Silent Token 取得成功');
-      // 使用 Graph token 取得使用者資訊（驗證登入）
-      await fetchUserInfoFromGraph(graphToken);
+      console.log('API Silent Token 取得成功');
+      // 使用 API token 去取得 Graph token，然後取得使用者資訊
+      await fetchUserInfoWithApiToken(apiToken);
       return;
     } catch (silentError) {
-      console.log('Silent token 失敗:', silentError);
+      console.log('API Silent token 失敗:', silentError);
       console.log('錯誤代碼:', silentError.errorCode);
       console.log('錯誤訊息:', silentError.message);
       
       // 如果是 UserConsentRequired，繼續到下一步要求授權
       if (silentError.errorCode !== 'UserConsentRequired') {
         // 其他錯誤可能是配置問題，記錄詳細資訊
-        console.error('Silent token 失敗詳情:', {
+        console.error('API Silent token 失敗詳情:', {
           errorCode: silentError.errorCode,
           message: silentError.message,
           stack: silentError.stack
@@ -120,20 +125,21 @@ async function authenticateWithSSO() {
       }
     }
     
-    // 方法 2: 使用 getAuthToken 取得 Microsoft Graph token（需要使用者同意，但使用 Teams 內建視窗，不是 popup）
+    // 方法 2: 使用 getAuthToken 取得自己 API 的 token（需要使用者同意，但使用 Teams 內建視窗，不是 popup）
     // 這個方法在桌面版和網頁版都可以工作，且都在同頁面完成認證
-    console.log('使用 getAuthToken 取得 Microsoft Graph Token（Teams 內建視窗，同頁面認證）...');
+    console.log('使用 getAuthToken 取得 API Token（Teams 內建視窗，同頁面認證）...');
+    console.log('資源 URI:', apiResourceUri);
     
     try {
-      // 使用 Microsoft Graph 作為資源來取得 Graph token
-      const graphToken = await microsoftTeams.authentication.getAuthToken({
-        resources: ['https://graph.microsoft.com'],
+      // 使用自己 API 的資源 URI 來取得 token
+      const apiToken = await microsoftTeams.authentication.getAuthToken({
+        resources: [apiResourceUri],
         silent: false // 會顯示 Teams 內建的認證視窗，不是瀏覽器 popup，且在同頁面完成
       });
       
-      console.log('Microsoft Graph Token 取得成功');
-      // 使用 Graph token 取得使用者資訊（驗證登入）
-      await fetchUserInfoFromGraph(graphToken);
+      console.log('API Token 取得成功');
+      // 使用 API token 去取得 Graph token，然後取得使用者資訊
+      await fetchUserInfoWithApiToken(apiToken);
     } catch (getTokenError) {
       console.error('getAuthToken 失敗:', getTokenError);
       console.error('錯誤代碼:', getTokenError.errorCode);
@@ -304,6 +310,77 @@ async function authenticateWithMSAL() {
   } catch (error) {
     console.error('MSAL 登入失敗:', error);
     showError('登入失敗：' + error.message);
+  }
+}
+
+// 使用 API token 取得使用者資訊
+// 先使用 API token 驗證 SSO 成功，然後嘗試取得 Graph token 來取得使用者資訊
+async function fetchUserInfoWithApiToken(apiToken) {
+  try {
+    console.log('使用 API Token 取得使用者資訊...');
+    console.log('API Token 前 20 個字元:', apiToken.substring(0, 20) + '...');
+    
+    // 方法 1: 先嘗試 silent 取得 Graph token（如果之前已授權）
+    try {
+      console.log('嘗試取得 Graph Token (Silent)...');
+      const graphToken = await microsoftTeams.authentication.getAuthToken({
+        resources: ['https://graph.microsoft.com'],
+        silent: true
+      });
+      
+      console.log('Graph Token (Silent) 取得成功，使用 Graph API 取得使用者資訊');
+      await fetchUserInfoFromGraph(graphToken);
+      return;
+    } catch (silentError) {
+      console.log('Graph Token (Silent) 失敗，嘗試非 silent 方式:', silentError);
+    }
+    
+    // 方法 2: 嘗試非 silent 取得 Graph token（需要使用者授權，但使用 Teams 內建視窗）
+    try {
+      console.log('嘗試取得 Graph Token（需要授權）...');
+      const graphToken = await microsoftTeams.authentication.getAuthToken({
+        resources: ['https://graph.microsoft.com'],
+        silent: false // 會顯示 Teams 內建的認證視窗
+      });
+      
+      console.log('Graph Token 取得成功，使用 Graph API 取得使用者資訊');
+      await fetchUserInfoFromGraph(graphToken);
+      return;
+    } catch (graphError) {
+      console.log('無法取得 Graph Token，嘗試從 API Token 解析使用者資訊:', graphError);
+    }
+    
+    // 方法 3: 如果無法取得 Graph token，從 API token 中解析使用者資訊（JWT token 包含基本資訊）
+    try {
+      const tokenParts = apiToken.split('.');
+      if (tokenParts.length === 3) {
+        const payload = JSON.parse(atob(tokenParts[1]));
+        console.log('從 API Token 解析的使用者資訊:', payload);
+        
+        // 使用 token 中的資訊（如果有的話）
+        if (payload.unique_name || payload.preferred_username || payload.name) {
+          userInfo = {
+            displayName: payload.name || payload.unique_name || payload.preferred_username,
+            userPrincipalName: payload.unique_name || payload.preferred_username,
+            mail: payload.email || payload.unique_name || payload.preferred_username,
+            id: payload.oid || payload.sub
+          };
+          console.log('使用 Token 中的使用者資訊:', userInfo);
+          displayUserInfo();
+          return;
+        }
+      }
+    } catch (parseError) {
+      console.log('無法從 Token 解析使用者資訊:', parseError);
+    }
+    
+    // 方法 4: 如果以上都失敗，顯示 SSO 成功但無法取得詳細資訊
+    console.log('SSO 認證成功，但無法取得詳細使用者資訊');
+    showError('SSO 認證成功，但無法取得使用者詳細資訊。\n\n請確認已授與 Microsoft Graph API 權限。');
+    
+  } catch (error) {
+    console.error('使用 API Token 取得使用者資訊失敗:', error);
+    showError('取得使用者資訊失敗：' + error.message);
   }
 }
 
