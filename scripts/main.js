@@ -189,7 +189,22 @@ async function authenticateWithSSO() {
     // 步驟 2: 使用 MSAL 取得 Graph token（因為使用者已經在 Teams 中登入，可以使用 silent）
     console.log('步驟 2: 使用 MSAL 取得 Microsoft Graph Token...');
     try {
-      await authenticateWithMSALSilent();
+      // 從應用程式 token 中解析使用者資訊，用於 loginHint
+      let loginHint = null;
+      if (apiToken) {
+        try {
+          const tokenParts = apiToken.split('.');
+          if (tokenParts.length === 3) {
+            const payload = JSON.parse(atob(tokenParts[1]));
+            loginHint = payload.unique_name || payload.preferred_username || payload.upn || payload.email;
+            console.log('從應用程式 Token 解析的 loginHint:', loginHint);
+          }
+        } catch (e) {
+          console.log('無法從應用程式 Token 解析 loginHint:', e);
+        }
+      }
+      
+      await authenticateWithMSALSilent(loginHint);
       return; // 如果成功，直接返回
     } catch (msalError) {
       console.log('MSAL Silent 失敗，嘗試其他方式:', msalError);
@@ -235,9 +250,12 @@ async function authenticateWithSSO() {
 }
 
 // 使用 MSAL Silent 登入（不需要 popup，適合 Teams 桌面版）
-async function authenticateWithMSALSilent() {
+async function authenticateWithMSALSilent(loginHint = null) {
   try {
     console.log('開始 MSAL Silent 登入（不需要 popup）...');
+    if (loginHint) {
+      console.log('使用 loginHint:', loginHint);
+    }
     
     const { PublicClientApplication } = await import('@azure/msal-browser');
     
@@ -249,28 +267,73 @@ async function authenticateWithMSALSilent() {
       },
       system: {
         allowNativeBroker: false
+      },
+      cache: {
+        cacheLocation: 'sessionStorage',
+        storeAuthStateInCookie: false
       }
     };
 
     const msalInstance = new PublicClientApplication(msalConfig);
     await msalInstance.initialize();
 
-    // 檢查是否已登入
+    // 方法 1: 先檢查是否已有帳號，嘗試 acquireTokenSilent
     const accounts = msalInstance.getAllAccounts();
     if (accounts.length > 0) {
-      // 嘗試 silent token（不需要使用者互動）
-      const tokenResponse = await msalInstance.acquireTokenSilent({
-        scopes: ['User.Read'],
-        account: accounts[0]
-      });
-      await fetchUserInfoFromMSAL(tokenResponse.accessToken);
-      return;
+      console.log('找到已登入的帳號，嘗試 acquireTokenSilent...');
+      try {
+        const tokenResponse = await msalInstance.acquireTokenSilent({
+          scopes: ['User.Read'],
+          account: accounts[0]
+        });
+        console.log('acquireTokenSilent 成功');
+        await fetchUserInfoFromMSAL(tokenResponse.accessToken);
+        return;
+      } catch (silentError) {
+        console.log('acquireTokenSilent 失敗:', silentError);
+        console.log('錯誤代碼:', silentError.errorCode);
+        console.log('嘗試 ssoSilent...');
+      }
     }
     
-    // 如果沒有已登入的帳號，無法使用 silent
-    throw new Error('沒有已登入的帳號，無法使用 silent 登入');
+    // 方法 2: 使用 ssoSilent（在 Teams 環境中可以利用 SSO 狀態）
+    console.log('嘗試使用 ssoSilent（利用 Teams SSO 狀態）...');
+    try {
+      const ssoParams = {
+        scopes: ['User.Read']
+      };
+      
+      // 如果有 loginHint，使用它
+      if (loginHint) {
+        ssoParams.loginHint = loginHint;
+        console.log('使用 loginHint 進行 ssoSilent:', loginHint);
+      }
+      
+      const ssoResponse = await msalInstance.ssoSilent(ssoParams);
+      console.log('ssoSilent 成功');
+      await fetchUserInfoFromMSAL(ssoResponse.accessToken);
+      return;
+    } catch (ssoError) {
+      console.log('ssoSilent 失敗:', ssoError);
+      console.log('錯誤代碼:', ssoError.errorCode);
+      console.log('錯誤訊息:', ssoError.message);
+      
+      // 如果 ssoSilent 也失敗，嘗試使用 loginPopup（在 Teams 環境中可能可以工作）
+      if (ssoError.errorCode === 'interaction_required' || ssoError.errorCode === 'consent_required') {
+        console.log('需要互動，但在 Teams 環境中不應該使用 popup');
+        throw new Error('需要使用者授權，但 Teams SSO 應該已經處理了授權。請檢查 Azure Portal 中的 API 權限設定。');
+      }
+      
+      throw ssoError;
+    }
   } catch (error) {
     console.error('MSAL Silent 登入失敗:', error);
+    console.error('錯誤詳情:', {
+      errorCode: error.errorCode,
+      message: error.message,
+      name: error.name,
+      stack: error.stack
+    });
     throw error; // 重新拋出錯誤，讓上層處理
   }
 }
