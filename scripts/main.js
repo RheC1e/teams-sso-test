@@ -7,21 +7,49 @@ let userInfo = null;
 async function init() {
   try {
     console.log('初始化 Teams SDK...');
+    console.log('當前 URL:', window.location.href);
+    console.log('是否在 iframe 中:', window.self !== window.top);
+    console.log('User Agent:', navigator.userAgent);
+    
+    // 檢查是否在 Teams 環境中
+    // 如果不在 iframe 中且沒有 Teams SDK，可能是直接在瀏覽器中打開
+    if (window.self === window.top && !window.microsoftTeams) {
+      console.warn('檢測到不在 Teams 環境中');
+      showError('此應用程式必須在 Microsoft Teams 中執行。\n\n請在 Teams 中開啟此應用程式，而不是直接在瀏覽器中打開。');
+      return;
+    }
     
     // 等待 Teams SDK 載入
-    await microsoftTeams.app.initialize();
-    console.log('Teams SDK 初始化成功');
+    try {
+      await microsoftTeams.app.initialize();
+      console.log('Teams SDK 初始化成功');
+    } catch (initError) {
+      console.error('Teams SDK 初始化失敗:', initError);
+      
+      // 檢查是否是 "No Parent window found" 錯誤
+      if (initError.message && initError.message.includes('Parent window')) {
+        showError('無法連接到 Teams 客戶端。\n\n此應用程式必須在 Microsoft Teams 中執行。\n\n請在 Teams 中開啟此應用程式，而不是直接在瀏覽器中打開。');
+      } else {
+        showError('Teams SDK 初始化失敗：' + initError.message + '\n\n請確認您在 Teams 中開啟此應用程式。');
+      }
+      return;
+    }
 
     // 取得 Teams 上下文
-    teamsContext = await microsoftTeams.app.getContext();
-    console.log('Teams 上下文:', teamsContext);
-    console.log('User Agent:', navigator.userAgent);
-    console.log('是否在 iframe 中:', window.self !== window.top);
+    try {
+      teamsContext = await microsoftTeams.app.getContext();
+      console.log('Teams 上下文:', teamsContext);
+    } catch (contextError) {
+      console.error('取得 Teams 上下文失敗:', contextError);
+      showError('無法取得 Teams 上下文：' + contextError.message);
+      return;
+    }
 
     // 檢查是否在 Teams 中執行（桌面版和網頁版都應該在 Teams 中）
     // 只要 Teams SDK 可用，就使用 Teams SSO（getAuthToken）
     if (teamsContext && teamsContext.app && teamsContext.app.host) {
       console.log('在 Teams 中執行（桌面版或網頁版），使用 Teams SSO...');
+      console.log('Teams Host:', teamsContext.app.host.name);
       
       // 防止重複執行認證（避免死循環）
       if (window.isAuthenticating) {
@@ -43,11 +71,26 @@ async function init() {
       }
     } else {
       console.log('不在 Teams 中執行，無法使用 Teams SSO');
-      showError('此應用程式必須在 Microsoft Teams 中執行。');
+      console.log('Teams 上下文:', teamsContext);
+      showError('此應用程式必須在 Microsoft Teams 中執行。\n\n請在 Teams 中開啟此應用程式。');
     }
   } catch (error) {
     console.error('初始化失敗:', error);
-    showError('初始化失敗：' + error.message);
+    console.error('錯誤詳情:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    
+    // 提供更友好的錯誤訊息
+    let errorMessage = '初始化失敗：';
+    if (error.message && error.message.includes('Parent window')) {
+      errorMessage = '無法連接到 Teams 客戶端。\n\n此應用程式必須在 Microsoft Teams 中執行。\n\n請在 Teams 中開啟此應用程式，而不是直接在瀏覽器中打開。';
+    } else {
+      errorMessage += error.message || '未知錯誤';
+    }
+    
+    showError(errorMessage);
   }
 }
 
@@ -318,7 +361,11 @@ async function authenticateWithMSAL() {
 async function fetchUserInfoWithApiToken(apiToken) {
   try {
     console.log('使用 API Token 取得使用者資訊...');
-    console.log('API Token 前 20 個字元:', apiToken.substring(0, 20) + '...');
+    console.log('API Token 前 20 個字元:', apiToken ? apiToken.substring(0, 20) + '...' : 'Token 為空');
+    
+    if (!apiToken) {
+      throw new Error('API Token 為空');
+    }
     
     // 方法 1: 先嘗試 silent 取得 Graph token（如果之前已授權）
     try {
@@ -332,7 +379,16 @@ async function fetchUserInfoWithApiToken(apiToken) {
       await fetchUserInfoFromGraph(graphToken);
       return;
     } catch (silentError) {
-      console.log('Graph Token (Silent) 失敗，嘗試非 silent 方式:', silentError);
+      console.log('Graph Token (Silent) 失敗:', silentError);
+      console.log('錯誤代碼:', silentError.errorCode);
+      console.log('錯誤訊息:', silentError.message);
+      
+      // 如果是 UserConsentRequired，繼續到下一步
+      if (silentError.errorCode === 'UserConsentRequired') {
+        console.log('需要使用者授權，嘗試非 silent 方式...');
+      } else {
+        console.log('Silent 失敗，嘗試其他方式...');
+      }
     }
     
     // 方法 2: 嘗試非 silent 取得 Graph token（需要使用者授權，但使用 Teams 內建視窗）
@@ -347,39 +403,53 @@ async function fetchUserInfoWithApiToken(apiToken) {
       await fetchUserInfoFromGraph(graphToken);
       return;
     } catch (graphError) {
-      console.log('無法取得 Graph Token，嘗試從 API Token 解析使用者資訊:', graphError);
+      console.log('無法取得 Graph Token:', graphError);
+      console.log('錯誤代碼:', graphError.errorCode);
+      console.log('錯誤訊息:', graphError.message);
+      console.log('嘗試從 API Token 解析使用者資訊...');
     }
     
     // 方法 3: 如果無法取得 Graph token，從 API token 中解析使用者資訊（JWT token 包含基本資訊）
     try {
+      console.log('嘗試從 API Token 解析使用者資訊...');
       const tokenParts = apiToken.split('.');
       if (tokenParts.length === 3) {
+        // 解碼 JWT payload
         const payload = JSON.parse(atob(tokenParts[1]));
-        console.log('從 API Token 解析的使用者資訊:', payload);
+        console.log('從 API Token 解析的 Payload:', payload);
         
         // 使用 token 中的資訊（如果有的話）
-        if (payload.unique_name || payload.preferred_username || payload.name) {
+        if (payload.unique_name || payload.preferred_username || payload.name || payload.upn) {
           userInfo = {
-            displayName: payload.name || payload.unique_name || payload.preferred_username,
-            userPrincipalName: payload.unique_name || payload.preferred_username,
-            mail: payload.email || payload.unique_name || payload.preferred_username,
-            id: payload.oid || payload.sub
+            displayName: payload.name || payload.unique_name || payload.preferred_username || payload.upn,
+            userPrincipalName: payload.unique_name || payload.preferred_username || payload.upn,
+            mail: payload.email || payload.unique_name || payload.preferred_username || payload.upn,
+            id: payload.oid || payload.sub || payload.tid
           };
           console.log('使用 Token 中的使用者資訊:', userInfo);
           displayUserInfo();
           return;
+        } else {
+          console.log('Token 中沒有找到使用者資訊欄位');
         }
+      } else {
+        console.log('Token 格式不正確，不是有效的 JWT');
       }
     } catch (parseError) {
       console.log('無法從 Token 解析使用者資訊:', parseError);
+      console.error('解析錯誤詳情:', parseError.message);
     }
     
     // 方法 4: 如果以上都失敗，顯示 SSO 成功但無法取得詳細資訊
-    console.log('SSO 認證成功，但無法取得詳細使用者資訊');
-    showError('SSO 認證成功，但無法取得使用者詳細資訊。\n\n請確認已授與 Microsoft Graph API 權限。');
+    console.log('SSO 認證成功（已取得 API Token），但無法取得詳細使用者資訊');
+    showError('SSO 認證成功，但無法取得使用者詳細資訊。\n\n可能的原因：\n1. 未授與 Microsoft Graph API 權限\n2. 需要重新授權應用程式\n\n請在 Azure Portal 中確認已授與 Microsoft Graph API 權限。');
     
   } catch (error) {
     console.error('使用 API Token 取得使用者資訊失敗:', error);
+    console.error('錯誤詳情:', {
+      message: error.message,
+      stack: error.stack
+    });
     showError('取得使用者資訊失敗：' + error.message);
   }
 }
@@ -388,7 +458,11 @@ async function fetchUserInfoWithApiToken(apiToken) {
 async function fetchUserInfoFromGraph(graphToken) {
   try {
     console.log('從 Microsoft Graph API 取得使用者資訊（驗證登入）...');
-    console.log('Token 前 20 個字元:', graphToken.substring(0, 20) + '...');
+    console.log('Token 前 20 個字元:', graphToken ? graphToken.substring(0, 20) + '...' : 'Token 為空');
+    
+    if (!graphToken) {
+      throw new Error('Graph Token 為空');
+    }
     
     const response = await fetch('https://graph.microsoft.com/v1.0/me', {
       headers: {
@@ -399,7 +473,23 @@ async function fetchUserInfoFromGraph(graphToken) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('Graph API 回應:', response.status, errorText);
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      
+      // 詳細記錄錯誤資訊
+      let errorDetails = `HTTP ${response.status}: ${response.statusText}`;
+      try {
+        const errorJson = JSON.parse(errorText);
+        if (errorJson.error) {
+          errorDetails += `\n錯誤代碼: ${errorJson.error.code || 'N/A'}`;
+          errorDetails += `\n錯誤訊息: ${errorJson.error.message || 'N/A'}`;
+        }
+      } catch (e) {
+        // 如果無法解析 JSON，使用原始文字
+        if (errorText) {
+          errorDetails += `\n詳細資訊: ${errorText.substring(0, 200)}`;
+        }
+      }
+      
+      throw new Error(errorDetails);
     }
 
     userInfo = await response.json();
@@ -407,7 +497,22 @@ async function fetchUserInfoFromGraph(graphToken) {
     displayUserInfo();
   } catch (error) {
     console.error('從 Graph API 取得使用者資訊失敗:', error);
-    showError('取得使用者資訊失敗：' + error.message + '\n\n這表示 Microsoft 365 登入驗證失敗。');
+    
+    // 提供更詳細的錯誤訊息
+    let errorMessage = '取得使用者資訊失敗：' + error.message;
+    
+    if (error.message.includes('401')) {
+      errorMessage += '\n\n這表示 Microsoft 365 登入驗證失敗。';
+      errorMessage += '\n\n可能的原因：';
+      errorMessage += '\n1. Token 已過期或無效';
+      errorMessage += '\n2. 應用程式未授與 Microsoft Graph API 權限';
+      errorMessage += '\n3. 需要重新授權應用程式';
+    } else if (error.message.includes('403')) {
+      errorMessage += '\n\n這表示沒有權限存取 Microsoft Graph API。';
+      errorMessage += '\n\n請確認已授與應用程式 Microsoft Graph API 權限。';
+    }
+    
+    showError(errorMessage);
   }
 }
 
